@@ -4,6 +4,9 @@ import com.google.protobuf.Descriptors;
 import com.google.protobuf.Descriptors.EnumDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Descriptors.FileDescriptor.Syntax;
+import com.google.protobuf.DiscardUnknownFieldsParser;
+import com.google.protobuf.DynamicMessage;
+import com.google.protobuf.Parser;
 import io.confluent.kafka.schemaregistry.protobuf.dynamic.DynamicSchema;
 import io.confluent.kafka.schemaregistry.protobuf.dynamic.DynamicSchema.Builder;
 import io.confluent.kafka.schemaregistry.protobuf.dynamic.EnumDefinition;
@@ -25,8 +28,8 @@ public class PartialDynamicSchema {
         Builder schemaBuilder = DynamicSchema.newBuilder();
         schemaBuilder.setSyntax(syntax.name());
 
-        final MessageDefinition dynamicSchema = toDynamicMessage(descriptor, field);
-        schemaBuilder.addMessageDefinition(dynamicSchema);
+        final MessageDefinition messageDef = toMessageDef(descriptor, field);
+        schemaBuilder.addMessageDefinition(messageDef);
 
         try {
             return schemaBuilder.build();
@@ -35,7 +38,7 @@ public class PartialDynamicSchema {
         }
     }
 
-    private static MessageDefinition toDynamicMessage(Descriptors.Descriptor desc, Field field) {
+    private static MessageDefinition toMessageDef(Descriptors.Descriptor desc, Field field) {
         Collection<Field> subFields = field.getSubFields();
         if (field.getSubFields().size() == 0) {
             subFields = desc.getFields().stream()
@@ -67,12 +70,8 @@ public class PartialDynamicSchema {
                     break;
                 case ENUM:
                     if (!msgBuilder.containsEnum(subFieldDesc.getEnumType().getName())) {
-                        EnumDescriptor enumType = subFieldDesc.getEnumType();
-                        EnumDefinition.Builder enumBuilder = EnumDefinition.newBuilder(enumType.getName());
-                        enumType.getValues().forEach(enumValueDesc -> {
-                            enumBuilder.addValue(enumValueDesc.getName(), enumValueDesc.getNumber());
-                        });
-                        msgBuilder.addEnumDefinition(enumBuilder.build());
+                        EnumDefinition enumDefinition = toEnumDef(subFieldDesc);
+                        msgBuilder.addEnumDefinition(enumDefinition);
                     }
                     msgBuilder.addField(label, subFieldDesc.getEnumType().getName(),
                             subFieldName, subFieldDesc.getNumber(),
@@ -82,15 +81,10 @@ public class PartialDynamicSchema {
                     if (!msgBuilder.containsMessage(subFieldDesc.getMessageType().getName())) {
                         if (subFieldDesc.isMapField()) {
                             label = "repeated";
-                            final FieldDescriptor keyFieldDesc = subFieldDesc.getMessageType().findFieldByName(PB_MAP_KEY_NAME);
-                            final FieldDescriptor valueFieldDesc = subFieldDesc.getMessageType().findFieldByName(PB_MAP_VALUE_NAME);
-                            MessageDefinition.Builder mapMsgBuilder = MessageDefinition.newBuilder(subFieldDesc.getMessageType().getName());
-                            mapMsgBuilder.setMapEntry(true);
-                            mapMsgBuilder.addField(null, keyFieldDesc.getMessageType().getName(), PB_MAP_KEY_NAME, 1, null, null, null);
-                            mapMsgBuilder.addField(null, valueFieldDesc.getMessageType().getName(), PB_MAP_VALUE_NAME, 2, null, null, null);
-                            msgBuilder.addMessageDefinition(mapMsgBuilder.build());
+                            MessageDefinition mapDef = toMapDef(subFieldDesc);
+                            msgBuilder.addMessageDefinition(mapDef);
                         } else {
-                            MessageDefinition msgD = toDynamicMessage(subFieldDesc.getMessageType(), subField);
+                            MessageDefinition msgD = toMessageDef(subFieldDesc.getMessageType(), subField);
                             msgBuilder.addMessageDefinition(msgD);
                         }
                     }
@@ -101,6 +95,25 @@ public class PartialDynamicSchema {
             }
         });
         return msgBuilder.build();
+    }
+
+    private static MessageDefinition toMapDef(FieldDescriptor subFieldDesc) {
+        final FieldDescriptor keyFieldDesc = subFieldDesc.getMessageType().findFieldByName(PB_MAP_KEY_NAME);
+        final FieldDescriptor valueFieldDesc = subFieldDesc.getMessageType().findFieldByName(PB_MAP_VALUE_NAME);
+        MessageDefinition.Builder mapMsgBuilder = MessageDefinition.newBuilder(subFieldDesc.getMessageType().getName());
+        mapMsgBuilder.setMapEntry(true);
+        mapMsgBuilder.addField(null, keyFieldDesc.getMessageType().getName(), PB_MAP_KEY_NAME, 1, null, null, null);
+        mapMsgBuilder.addField(null, valueFieldDesc.getMessageType().getName(), PB_MAP_VALUE_NAME, 2, null, null, null);
+        return mapMsgBuilder.build();
+    }
+
+    private static EnumDefinition toEnumDef(FieldDescriptor subFieldDesc) {
+        EnumDescriptor enumType = subFieldDesc.getEnumType();
+        EnumDefinition.Builder enumBuilder = EnumDefinition.newBuilder(enumType.getName());
+        enumType.getValues().forEach(enumValueDesc -> {
+            enumBuilder.addValue(enumValueDesc.getName(), enumValueDesc.getNumber());
+        });
+        return enumBuilder.build();
     }
 
     private static String getLabel(FieldDescriptor fieldDescriptor) {
@@ -114,5 +127,11 @@ public class PartialDynamicSchema {
             default:
                 throw new IllegalStateException("Unexpected value: " + fieldDescriptor.toProto().getLabel());
         }
+    }
+
+    public static Parser<DynamicMessage> getPartialParser(Descriptors.Descriptor descriptor) {
+        return DiscardUnknownFieldsParser.wrap(
+                DynamicMessage.getDefaultInstance(descriptor).getParserForType()
+        );
     }
 }
