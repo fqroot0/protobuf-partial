@@ -1,5 +1,10 @@
 package com.github.fqroot0.pbpartial;
 
+
+import java.util.Collection;
+import java.util.List;
+import java.util.stream.Collectors;
+
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.Descriptors.EnumDescriptor;
 import com.google.protobuf.Descriptors.FieldDescriptor;
@@ -7,13 +12,11 @@ import com.google.protobuf.Descriptors.FileDescriptor.Syntax;
 import com.google.protobuf.DiscardUnknownFieldsParser;
 import com.google.protobuf.DynamicMessage;
 import com.google.protobuf.Parser;
+
 import io.confluent.kafka.schemaregistry.protobuf.dynamic.DynamicSchema;
 import io.confluent.kafka.schemaregistry.protobuf.dynamic.DynamicSchema.Builder;
 import io.confluent.kafka.schemaregistry.protobuf.dynamic.EnumDefinition;
 import io.confluent.kafka.schemaregistry.protobuf.dynamic.MessageDefinition;
-
-import java.util.Collection;
-import java.util.stream.Collectors;
 
 /**
  * @author fqroot0
@@ -137,9 +140,12 @@ public class PartialDynamicSchema {
         }
     }
 
-    public static Parser<DynamicMessage> getPartialParser(Descriptors.Descriptor descriptor) {
+    public static Parser<DynamicMessage> getPartialParser(Descriptors.Descriptor descriptor, List<String> fields) {
+        final Field field = Field.parse(descriptor.getName(), fields);
+        final DynamicSchema dynamicSchema = toDynamicSchema(descriptor, field);
+        Descriptors.Descriptor partialDescriptor = dynamicSchema.getMessageDescriptor(descriptor.getName());
         return DiscardUnknownFieldsParser.wrap(
-                DynamicMessage.getDefaultInstance(descriptor).getParserForType()
+                DynamicMessage.getDefaultInstance(partialDescriptor).getParserForType()
         );
     }
 }
