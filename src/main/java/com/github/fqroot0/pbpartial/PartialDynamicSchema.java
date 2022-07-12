@@ -65,8 +65,9 @@ public class PartialDynamicSchema {
                 case BOOLEAN:
                 case STRING:
                 case BYTE_STRING:
+                    String defaultValue = subFieldDesc.isRepeated() ? null : String.valueOf(subFieldDesc.getDefaultValue());
                     msgBuilder.addField(label, type, subFieldDesc.getName(), subFieldDesc.getNumber(),
-                            String.valueOf(subFieldDesc.getDefaultValue()), null, null);
+                            defaultValue, null, null);
                     break;
                 case ENUM:
                     if (!msgBuilder.containsEnum(subFieldDesc.getEnumType().getName())) {
@@ -102,8 +103,15 @@ public class PartialDynamicSchema {
         final FieldDescriptor valueFieldDesc = subFieldDesc.getMessageType().findFieldByName(PB_MAP_VALUE_NAME);
         MessageDefinition.Builder mapMsgBuilder = MessageDefinition.newBuilder(subFieldDesc.getMessageType().getName());
         mapMsgBuilder.setMapEntry(true);
-        mapMsgBuilder.addField(null, keyFieldDesc.getMessageType().getName(), PB_MAP_KEY_NAME, 1, null, null, null);
-        mapMsgBuilder.addField(null, valueFieldDesc.getMessageType().getName(), PB_MAP_VALUE_NAME, 2, null, null, null);
+        String keyType = keyFieldDesc.getType().name().toLowerCase();
+        String valueType = valueFieldDesc.getType().name().toLowerCase();
+        if (valueFieldDesc.getType() == FieldDescriptor.Type.MESSAGE) {
+            valueType = valueFieldDesc.getMessageType().getName();
+            final MessageDefinition messageDefinition = toMessageDef(valueFieldDesc.getMessageType(), new Field(valueFieldDesc.getName()));
+            mapMsgBuilder.addMessageDefinition(messageDefinition);
+        }
+        mapMsgBuilder.addField(null, keyType, PB_MAP_KEY_NAME, 1, null, null, null);
+        mapMsgBuilder.addField(null, valueType, PB_MAP_VALUE_NAME, 2, null, null, null);
         return mapMsgBuilder.build();
     }
 
